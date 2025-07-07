@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const session = require('express-session'); // 🔧 додано!
 const axios = require('axios');
 const crypto = require('crypto');
 const app = express();
