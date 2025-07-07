@@ -4,8 +4,6 @@ const axios = require('axios');
 const crypto = require('crypto');
 const app = express();
 
-const app = express();
-
 // ⛓️ Middleware для сесій
 app.use(session({
   secret: 'super-secret-session-key', // заміни на свій секрет!
