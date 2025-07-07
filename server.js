@@ -2,9 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
+
 const app = express();
 
-// Генеруємо code_verifier та code_challenge
+// Генеруємо code_verifier та code_challenge (для OAuth 2.0 PKCE)
 let code_verifier = crypto.randomBytes(32).toString('hex');
 let code_challenge = crypto
   .createHash('sha256')
@@ -15,14 +16,19 @@ let code_challenge = crypto
   .replace(/\+/g, '-')
   .replace(/\//g, '_');
 
-// 1️⃣ Користувач натискає "Connect Twitter" → перенаправлення на Twitter OAuth
+// 📍 Домашній маршрут (щоб не було "Cannot GET /")
+app.get('/', (req, res) => {
+  res.send('✅ Backend is running. Use /login to authenticate via Twitter.');
+});
+
+// 1️⃣ Перенаправлення користувача на Twitter OAuth2
 app.get('/login', (req, res) => {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.CLIENT_ID,
     redirect_uri: process.env.REDIRECT_URI,
     scope: 'tweet.read users.read offline.access',
-    state: 'secure_random_state',
+    state: 'secure_random_state', // у майбутньому варто зберігати унікальний
     code_challenge: code_challenge,
     code_challenge_method: 'S256'
   });
@@ -30,10 +36,10 @@ app.get('/login', (req, res) => {
   res.redirect(`https://twitter.com/i/oauth2/authorize?${params.toString()}`);
 });
 
-// 2️⃣ Twitter перенаправляє назад сюди після входу
+// 2️⃣ Twitter повертає код → обмін на токен → отримаємо юзернейм
 app.get('/raffle', async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.send('Missing code');
+  if (!code) return res.send('❌ Missing code from Twitter');
 
   try {
     const tokenResponse = await axios.post(
@@ -65,14 +71,15 @@ app.get('/raffle', async (req, res) => {
 
     const { username } = userResponse.data.data;
 
-    // 🔁 Повертаємо користувача на raffle із його @username у URL
+    // ✅ Перенаправлення назад на фронт із Twitter username
     res.redirect(`https://owlbtc.art/raffle/?twitter=${username}`);
   } catch (error) {
-    console.error(error.response?.data || error.message);
+    console.error('❌ Twitter Auth Error:', error.response?.data || error.message);
     res.status(500).send('Authentication failed');
   }
 });
 
-app.listen(process.env.PORT, () => {
-  console.log(`✅ Server started on port ${process.env.PORT}`);
+// ▶️ Запуск сервера
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`✅ Server started on port ${process.env.PORT || 3000}`);
 });
