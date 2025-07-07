@@ -1,34 +1,47 @@
 require('dotenv').config();
 const express = require('express');
+const session = require('express-session');
 const axios = require('axios');
 const crypto = require('crypto');
 
 const app = express();
 
-// Генеруємо code_verifier та code_challenge (для OAuth 2.0 PKCE)
-let code_verifier = crypto.randomBytes(32).toString('hex');
-let code_challenge = crypto
-  .createHash('sha256')
-  .update(code_verifier)
-  .digest()
-  .toString('base64')
-  .replace(/=/g, '')
-  .replace(/\+/g, '-')
-  .replace(/\//g, '_');
+// ⛓️ Middleware для сесій
+app.use(session({
+  secret: 'super-secret-session-key', // заміни на свій секрет!
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false } // якщо використовуєш https, постав true
+}));
 
-// 📍 Домашній маршрут (щоб не було "Cannot GET /")
+// 🏠 Домашній маршрут для перевірки
 app.get('/', (req, res) => {
   res.send('✅ Backend is running. Use /login to authenticate via Twitter.');
 });
 
-// 1️⃣ Перенаправлення користувача на Twitter OAuth2
+// 🔐 Користувач натискає кнопку "Connect Twitter" → редірект
 app.get('/login', (req, res) => {
+  // Генерація нового code_verifier і code_challenge
+  const code_verifier = crypto.randomBytes(32).toString('hex');
+  const code_challenge = crypto
+    .createHash('sha256')
+    .update(code_verifier)
+    .digest()
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+
+  // Зберігаємо в сесії
+  req.session.code_verifier = code_verifier;
+
+  // Формуємо запит до Twitter
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.CLIENT_ID,
     redirect_uri: process.env.REDIRECT_URI,
     scope: 'tweet.read users.read offline.access',
-    state: 'secure_random_state', // у майбутньому варто зберігати унікальний
+    state: 'secure_random_state',
     code_challenge: code_challenge,
     code_challenge_method: 'S256'
   });
@@ -36,12 +49,17 @@ app.get('/login', (req, res) => {
   res.redirect(`https://twitter.com/i/oauth2/authorize?${params.toString()}`);
 });
 
-// 2️⃣ Twitter повертає код → обмін на токен → отримаємо юзернейм
+// 🌀 Callback після авторизації з кодом → обмін на токен → отримуємо username
 app.get('/raffle', async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.send('❌ Missing code from Twitter');
+  const code_verifier = req.session.code_verifier;
+
+  if (!code || !code_verifier) {
+    return res.send('❌ Missing code or verifier. Please try logging in again.');
+  }
 
   try {
+    // Отримуємо access_token
     const tokenResponse = await axios.post(
       'https://api.twitter.com/2/oauth2/token',
       new URLSearchParams({
@@ -63,6 +81,7 @@ app.get('/raffle', async (req, res) => {
 
     const { access_token } = tokenResponse.data;
 
+    // Отримуємо username
     const userResponse = await axios.get('https://api.twitter.com/2/users/me', {
       headers: {
         Authorization: `Bearer ${access_token}`
@@ -71,7 +90,7 @@ app.get('/raffle', async (req, res) => {
 
     const { username } = userResponse.data.data;
 
-    // ✅ Перенаправлення назад на фронт із Twitter username
+    // 🔁 Повертаємо користувача на фронт
     res.redirect(`https://owlbtc.art/raffle/?twitter=${username}`);
   } catch (error) {
     console.error('❌ Twitter Auth Error:', error.response?.data || error.message);
@@ -80,6 +99,7 @@ app.get('/raffle', async (req, res) => {
 });
 
 // ▶️ Запуск сервера
-app.listen(process.env.PORT || 3000, () => {
-  console.log(`✅ Server started on port ${process.env.PORT || 3000}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server started on http://localhost:${PORT}`);
 });
